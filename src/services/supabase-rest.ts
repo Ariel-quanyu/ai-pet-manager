@@ -18,7 +18,7 @@ async function request<T>(path:string,{method='GET',body,token,prefer}:RequestOp
     data:body,
     header:{
       apikey:apiKey,
-      Authorization:`Bearer ${token||apiKey}`,
+      ...(token?{Authorization:`Bearer ${token}`}:{}),
       'Content-Type':'application/json',
       ...(prefer?{Prefer:prefer}:{})
     }
