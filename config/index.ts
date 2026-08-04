@@ -8,6 +8,11 @@ export default defineConfig<'webpack5'>(async (merge, { mode }) => {
     projectName: 'ai-pet-manager', date: '2026-08-03', designWidth: 750,
     deviceRatio: { 750: 1 }, sourceRoot: 'src', outputRoot: 'dist',
     framework: 'react', compiler: 'webpack5', cache: { enable: false },
+    env: {
+      TARO_APP_SUPABASE_URL: JSON.stringify(process.env.TARO_APP_SUPABASE_URL || ''),
+      TARO_APP_SUPABASE_PUBLISHABLE_KEY: JSON.stringify(process.env.TARO_APP_SUPABASE_PUBLISHABLE_KEY || ''),
+      TARO_APP_SUPABASE_ANON_KEY: JSON.stringify(process.env.TARO_APP_SUPABASE_ANON_KEY || '')
+    },
     mini: {
       webpackChain (chain) {
         chain.resolve.alias.set('@', path.resolve(__dirname, '..', 'src'))
