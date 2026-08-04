@@ -131,12 +131,34 @@ create or replace function public.book_clinic_appointment(
 language sql security invoker set search_path=''
 as $$ select private.book_clinic_appointment(p_clinic_id,p_pet_id,p_slot_id,p_appointment_date,p_symptoms,p_onset_date,p_mental_appetite,p_bowel_urine,p_notes); $$;
 
+create or replace function private.cancel_clinic_appointment(p_appointment_id uuid)
+returns boolean
+language plpgsql security definer set search_path=''
+as $$
+begin
+  if auth.uid() is null then raise exception 'Authentication required' using errcode='42501'; end if;
+  update public.clinic_appointments
+    set status='cancelled',updated_at=now()
+    where id=p_appointment_id and user_id=auth.uid() and status in ('booked','confirmed');
+  return found;
+end;
+$$;
+
+create or replace function public.cancel_clinic_appointment(p_appointment_id uuid)
+returns boolean
+language sql security invoker set search_path=''
+as $$ select private.cancel_clinic_appointment(p_appointment_id); $$;
+
 revoke all on function private.get_available_clinic_slots(uuid,date) from public,anon;
 revoke all on function private.book_clinic_appointment(uuid,uuid,uuid,date,text,date,text,text,text) from public,anon;
 revoke all on function public.get_available_clinic_slots(uuid,date) from public,anon;
 revoke all on function public.book_clinic_appointment(uuid,uuid,uuid,date,text,date,text,text,text) from public,anon;
+revoke all on function private.cancel_clinic_appointment(uuid) from public,anon;
+revoke all on function public.cancel_clinic_appointment(uuid) from public,anon;
 grant usage on schema private to authenticated;
 grant execute on function private.get_available_clinic_slots(uuid,date) to authenticated;
 grant execute on function private.book_clinic_appointment(uuid,uuid,uuid,date,text,date,text,text,text) to authenticated;
 grant execute on function public.get_available_clinic_slots(uuid,date) to authenticated;
 grant execute on function public.book_clinic_appointment(uuid,uuid,uuid,date,text,date,text,text,text) to authenticated;
+grant execute on function private.cancel_clinic_appointment(uuid) to authenticated;
+grant execute on function public.cancel_clinic_appointment(uuid) to authenticated;
