@@ -6,9 +6,9 @@ interface ClinicRow { id:string; name:string; address:string; phone:string|null 
 interface SlotRow { id:string; start_time:string; end_time:string; capacity:number; booked:number; available:boolean }
 interface PetRow { id:string }
 interface AppointmentRow {
-  id:string; appointment_no:string; medical_record_no:string; appointment_date:string; start_time:string; end_time:string; status:string;
+  id:string; appointment_no:string; appointment_date:string; start_time:string; end_time:string; status:string;
   symptoms:string; onset_date:string; mental_appetite:string; bowel_urine:string; notes:string|null;
-  clinics:{name:string}|null; pets:{name:string}|null
+  clinics:{name:string}|null; pets:{name:string;medical_record_no:string}|null
 }
 
 export async function listClinics():Promise<Clinic[]>{
@@ -38,9 +38,9 @@ export async function bookAppointment(form:AppointmentForm):Promise<string>{
 }
 
 export async function getAppointment(id:string):Promise<AppointmentDetail>{
-  const select='id,appointment_no,medical_record_no,appointment_date,start_time,end_time,status,symptoms,onset_date,mental_appetite,bowel_urine,notes,clinics(name),pets(name)'
+  const select='id,appointment_no,appointment_date,start_time,end_time,status,symptoms,onset_date,mental_appetite,bowel_urine,notes,clinics(name),pets(name,medical_record_no)'
   const rows=await supabaseRest<AppointmentRow[]>(`clinic_appointments?id=eq.${encodeURIComponent(id)}&select=${encodeURIComponent(select)}&limit=1`)
   const row=rows[0]
   if(!row)throw new Error('未找到该预约')
-  return {id:row.id,appointmentNo:row.appointment_no,medicalRecordNo:row.medical_record_no,appointmentDate:row.appointment_date,startTime:row.start_time,endTime:row.end_time,status:row.status,symptoms:row.symptoms,onsetDate:row.onset_date,mentalAppetite:row.mental_appetite,bowelUrine:row.bowel_urine,notes:row.notes,clinicName:row.clinics?.name||'—',petName:row.pets?.name||'—'}
+  return {id:row.id,appointmentNo:row.appointment_no,medicalRecordNo:row.pets?.medical_record_no||'—',appointmentDate:row.appointment_date,startTime:row.start_time,endTime:row.end_time,status:row.status,symptoms:row.symptoms,onsetDate:row.onset_date,mentalAppetite:row.mental_appetite,bowelUrine:row.bowel_urine,notes:row.notes,clinicName:row.clinics?.name||'—',petName:row.pets?.name||'—'}
 }
