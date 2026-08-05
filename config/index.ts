@@ -11,12 +11,11 @@ export default defineConfig<'webpack5'>(async (merge, { mode }) => {
     env: {
       TARO_APP_SUPABASE_URL: JSON.stringify(process.env.TARO_APP_SUPABASE_URL || ''),
       TARO_APP_SUPABASE_PUBLISHABLE_KEY: JSON.stringify(process.env.TARO_APP_SUPABASE_PUBLISHABLE_KEY || ''),
-      TARO_APP_SUPABASE_ANON_KEY: JSON.stringify(process.env.TARO_APP_SUPABASE_ANON_KEY || '')
+      TARO_APP_SUPABASE_ANON_KEY: JSON.stringify(process.env.TARO_APP_SUPABASE_ANON_KEY || ''),
+      TARO_APP_TENCENT_MAP_KEY: JSON.stringify(process.env.TARO_APP_TENCENT_MAP_KEY || '')
     },
     mini: {
-      webpackChain (chain) {
-        chain.resolve.alias.set('@', path.resolve(__dirname, '..', 'src'))
-      },
+      webpackChain (chain) { chain.resolve.alias.set('@', path.resolve(__dirname, '..', 'src')) },
       postcss: { pxtransform: { enable: true }, url: { enable: true, config: { limit: 1024 } }, cssModules: { enable: false } }
     }
   }
