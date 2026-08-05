@@ -1,6 +1,16 @@
 import type { Pet } from './pet'
 
-export interface Clinic { id:string; name:string; address:string; phone?:string|null }
+export interface Clinic {
+  id:string
+  name:string
+  address:string
+  phone?:string|null
+  city?:string|null
+  district?:string|null
+  latitude?:number|null
+  longitude?:number|null
+  imageUrl?:string|null
+}
 export interface AppointmentDate { iso:string; label:string; weekday:string }
 export interface ClinicSlot { id:string; startTime:string; endTime:string; capacity:number; booked:number; available:boolean }
 export interface AppointmentForm {

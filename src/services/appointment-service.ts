@@ -2,7 +2,17 @@ import type { Pet } from '@/domain/pet'
 import type { AppointmentDetail, AppointmentForm, Clinic, ClinicSlot } from '@/domain/appointment'
 import { supabaseRest } from './supabase-rest'
 
-interface ClinicRow { id:string; name:string; address:string; phone:string|null }
+interface ClinicRow {
+  id:string
+  name:string
+  address:string
+  phone:string|null
+  city:string|null
+  district:string|null
+  latitude:number|null
+  longitude:number|null
+  image_url:string|null
+}
 interface SlotRow { id:string; start_time:string; end_time:string; capacity:number; booked:number; available:boolean }
 interface PetRow { id:string }
 interface AppointmentRow {
@@ -12,8 +22,12 @@ interface AppointmentRow {
 }
 
 export async function listClinics():Promise<Clinic[]>{
-  const rows=await supabaseRest<ClinicRow[]>('clinics?select=id,name,address,phone&is_active=eq.true&order=name.asc')
-  return rows.map(row=>({id:row.id,name:row.name,address:row.address,phone:row.phone}))
+  const select='id,name,address,phone,city,district,latitude,longitude,image_url'
+  const rows=await supabaseRest<ClinicRow[]>(`clinics?select=${select}&is_active=eq.true&order=city.asc,name.asc`)
+  return rows.map(row=>({
+    id:row.id,name:row.name,address:row.address,phone:row.phone,city:row.city,district:row.district,
+    latitude:row.latitude,longitude:row.longitude,imageUrl:row.image_url
+  }))
 }
 
 export async function listAvailableSlots(clinicId:string,date:string):Promise<ClinicSlot[]>{
