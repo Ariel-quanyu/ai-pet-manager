@@ -12,9 +12,39 @@ interface TencentGeocoderResponse {
 }
 
 const mapKey=process.env.TARO_APP_TENCENT_MAP_KEY||''
+const LOCATION_TIMEOUT_MS=10_000
+
+export class LocationPermissionError extends Error {
+  constructor(){
+    super('定位权限未开启')
+    this.name='LocationPermissionError'
+  }
+}
+
+const withTimeout=<T>(promise:Promise<T>,message:string):Promise<T>=>new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(new Error(message)),LOCATION_TIMEOUT_MS)
+  promise.then(
+    value=>{clearTimeout(timer);resolve(value)},
+    reason=>{clearTimeout(timer);reject(reason)}
+  )
+})
+
+const isPermissionFailure=(reason:unknown)=>{
+  const message=reason instanceof Error?reason.message:String(reason||'')
+  return /auth deny|authorize|permission|scope\.userLocation|权限/u.test(message)
+}
 
 export async function getCurrentCoordinates():Promise<Coordinates>{
-  const result=await Taro.getLocation({type:'gcj02',isHighAccuracy:true,highAccuracyExpireTime:5000})
+  try{
+    await withTimeout(Taro.authorize({scope:'scope.userLocation'}),'定位授权超时，请重试')
+  }catch(reason){
+    if(isPermissionFailure(reason))throw new LocationPermissionError()
+    throw reason
+  }
+  const result=await withTimeout(
+    Taro.getLocation({type:'gcj02',isHighAccuracy:true,highAccuracyExpireTime:5000}),
+    '定位超时，请检查网络和系统定位设置后重试'
+  )
   return {latitude:result.latitude,longitude:result.longitude}
 }
 
@@ -23,6 +53,7 @@ export async function reverseGeocode(coordinates:Coordinates):Promise<LocatedCit
   const response=await Taro.request<TencentGeocoderResponse>({
     url:'https://apis.map.qq.com/ws/geocoder/v1/',
     method:'GET',
+    timeout:LOCATION_TIMEOUT_MS,
     data:{location:`${coordinates.latitude},${coordinates.longitude}`,key:mapKey,get_poi:0}
   })
   const component=response.data.result?.address_component
@@ -33,6 +64,7 @@ export async function reverseGeocode(coordinates:Coordinates):Promise<LocatedCit
 }
 
 export const isTencentMapConfigured=()=>Boolean(mapKey)
+export const isLocationPermissionError=(reason:unknown)=>reason instanceof LocationPermissionError||isPermissionFailure(reason)
 
 export function getStoredCity():string{
   try{return String(Taro.getStorageSync(SELECTED_CITY_STORAGE_KEY)||'').trim()}
