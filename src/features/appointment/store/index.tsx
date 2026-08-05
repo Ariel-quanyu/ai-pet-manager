@@ -1,14 +1,12 @@
 import { Image, Input, Picker, Text, View } from '@tarojs/components'
-import Taro, { useLoad } from '@tarojs/taro'
+import Taro, { useDidShow, useLoad } from '@tarojs/taro'
 import { useMemo, useState } from 'react'
 import { StatusBar } from '@/components/status-bar'
 import type { Clinic } from '@/domain/appointment'
 import { distanceInKilometres,formatDistance,normalizeCityName,type Coordinates } from '@/domain/location'
 import { listClinics } from '@/services/appointment-service'
-import { getCurrentCoordinates,isTencentMapConfigured,reverseGeocode } from '@/services/location-service'
+import { getCurrentCoordinates,getStoredCity,isTencentMapConfigured,reverseGeocode,storeSelectedCity } from '@/services/location-service'
 import './index.scss'
-
-const CITY_STORAGE_KEY='appointment:selected-city'
 
 interface ClinicWithDistance { clinic:Clinic; distance:number|null }
 
@@ -19,7 +17,7 @@ const clinicCoordinates=(clinic:Clinic):Coordinates|null=>
 
 export default function SelectClinicPage(){
   const [clinics,setClinics]=useState<Clinic[]>([])
-  const [selectedCity,setSelectedCity]=useState(()=>Taro.getStorageSync<string>(CITY_STORAGE_KEY)||'')
+  const [selectedCity,setSelectedCity]=useState('')
   const [coordinates,setCoordinates]=useState<Coordinates|null>(null)
   const [keyword,setKeyword]=useState('')
   const [loading,setLoading]=useState(true)
@@ -42,7 +40,7 @@ export default function SelectClinicPage(){
         if(left.distance!==null&&right.distance!==null)return left.distance-right.distance
         if(left.distance!==null)return -1
         if(right.distance!==null)return 1
-        return left.clinic.name.localeCompare(right.clinic.name,'zh-CN')
+        return left.clinic.name.localeCompare(right.clinic.name)
       })
   },[clinics,coordinates,keyword,selectedCity])
 
@@ -55,7 +53,7 @@ export default function SelectClinicPage(){
       try{
         const city=(await reverseGeocode(current)).city
         setSelectedCity(city)
-        Taro.setStorageSync(CITY_STORAGE_KEY,city)
+        storeSelectedCity(city)
         setLocationHint('已定位，附近门店按距离排序')
       }catch{
         setLocationHint(isTencentMapConfigured()?'已获取位置，城市识别失败，请手动选择':'已获取位置，请配置地图 Key 或手动选择城市')
@@ -72,9 +70,17 @@ export default function SelectClinicPage(){
     }
   }
 
+  useDidShow(()=>{
+    const storedCity=getStoredCity()
+    if(storedCity)setSelectedCity(storedCity)
+  })
+
   useLoad(()=>{
+    const storedCity=getStoredCity()
+    if(storedCity)setSelectedCity(storedCity)
+    else void locate(false)
     void listClinics()
-      .then(rows=>{setClinics(rows);setLoading(false);void locate(false)})
+      .then(rows=>setClinics(rows))
       .catch(reason=>setError(reason instanceof Error?reason.message:'门店加载失败'))
       .finally(()=>setLoading(false))
   })
@@ -82,7 +88,7 @@ export default function SelectClinicPage(){
   const changeCity=(event:{detail:{value:string|number}})=>{
     const city=cityOptions[Number(event.detail.value)]||''
     setSelectedCity(city)
-    if(city)Taro.setStorageSync(CITY_STORAGE_KEY,city)
+    if(city)storeSelectedCity(city)
   }
   const select=(clinic:Clinic)=>{Taro.setStorageSync('appointment:selected-clinic',clinic);Taro.navigateBack()}
 
