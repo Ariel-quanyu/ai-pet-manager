@@ -3,6 +3,8 @@ import type { Coordinates } from '@/domain/location'
 
 export interface LocatedCity extends Coordinates { city:string; district:string }
 
+export const SELECTED_CITY_STORAGE_KEY='appointment:selected-city'
+
 interface TencentGeocoderResponse {
   status:number
   message:string
@@ -31,3 +33,21 @@ export async function reverseGeocode(coordinates:Coordinates):Promise<LocatedCit
 }
 
 export const isTencentMapConfigured=()=>Boolean(mapKey)
+
+export function getStoredCity():string{
+  try{return String(Taro.getStorageSync(SELECTED_CITY_STORAGE_KEY)||'').trim()}
+  catch{return ''}
+}
+
+export function storeSelectedCity(city:string):void{
+  const value=city.trim()
+  if(!value)return
+  try{Taro.setStorageSync(SELECTED_CITY_STORAGE_KEY,value)}catch{}
+}
+
+export async function locateCurrentCity():Promise<LocatedCity>{
+  const coordinates=await getCurrentCoordinates()
+  const located=await reverseGeocode(coordinates)
+  storeSelectedCity(located.city)
+  return located
+}
