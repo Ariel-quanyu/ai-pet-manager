@@ -1,6 +1,6 @@
 # AI 宠物管家
 
-面向中文宠物主人的微信小程序 MVP，使用 **Taro + React + TypeScript** 实现。当前版本聚焦“进入产品—授权/体验—创建首只宠物—查看宠物档案”的最小闭环，不接入后端。
+面向中文宠物主人的微信小程序 MVP，使用 **Taro + React + TypeScript** 实现。微信用户通过 Supabase Edge Function 完成身份验证；游客宠物数据仍只保存在本机。
 
 ## Phase 1 功能
 
@@ -22,6 +22,35 @@ npm run dev:weapp
 ```
 
 使用微信开发者工具导入仓库根目录的 `project.config.json`，预览 `dist/`。项目默认使用游客 AppID，真实授权能力需替换为已配置的微信小程序 AppID，并在后端能力完成后才可用于生产。
+
+### 微信登录与 Supabase 配置
+
+前端构建仅使用以下公开变量（参见 `.env.example`）：
+
+- `TARO_APP_SUPABASE_URL`
+- `TARO_APP_SUPABASE_PUBLISHABLE_KEY`
+
+Edge Function 读取 `WECHAT_APP_ID`、`WECHAT_APP_SECRET`，以及 Supabase 托管运行时提供的
+`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`。后两项只用于服务端 Auth Admin/RPC，绝不能放进前端变量。
+`wechat-login` 通过 Admin `generateLink` 生成不发送邮件的一次性 magic-link token hash，并立即在服务端
+`verifyOtp`，最终只向客户端返回标准可刷新的 Supabase Session；不会自行签名 JWT。
+
+部署前需**手动审查并应用** `supabase/migrations/20260807000000_wechat_identity_rpc.sql`。该 migration
+只增加固定 `search_path` 的 `security definer` RPC，并只授权 `service_role`，用于访问未暴露的
+`private.wechat_identities`；本仓库不会自动执行 migration。然后可由项目管理员手动执行（本 PR 不执行）：
+
+```bash
+npx supabase --version
+npx supabase functions deploy --help
+npx supabase login
+npx supabase link --project-ref <PROJECT_REF>
+npx supabase db push # 仅在审查 migration 后，由管理员决定执行
+npx supabase secrets set WECHAT_APP_ID=... WECHAT_APP_SECRET=...
+npx supabase functions deploy wechat-login
+```
+
+微信公众平台还需把 `https://<PROJECT_REF>.supabase.co` 加入 **request 合法域名**。部署前应在真实项目的
+测试环境人工验证 Auth 的手机号唯一性策略、`profiles` trigger 和既有 `wechat_identities` 列约束与 migration 一致。
 
 ## 质量检查
 

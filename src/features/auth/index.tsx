@@ -1,14 +1,25 @@
 import { Button, Text, View } from '@tarojs/components'
 import type { ButtonProps } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { StatusBar } from '@/components/status-bar'
+import { completeWechatLogin, restoreAuthSession } from '@/services/auth-session'
 import './index.scss'
 
 type PhoneNumberEvent = Parameters<NonNullable<ButtonProps['onGetPhoneNumber']>>[0]
 
 export default function AuthPage() {
   const isFinishing = useRef(false)
+  const mounted = useRef(true)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    mounted.current = true
+    void restoreAuthSession().then((authenticated) => {
+      if (authenticated && mounted.current) enterHome()
+    }).catch(() => undefined)
+    return () => { mounted.current = false }
+  }, [])
 
   const enterHome = (asGuest = false) => {
     if (isFinishing.current) return
@@ -20,8 +31,24 @@ export default function AuthPage() {
     Taro.redirectTo({ url: '/features/home/index' })
   }
 
-  const handlePhoneNumber = (event: PhoneNumberEvent) => {
-    enterHome(event.detail.errMsg.includes('fail'))
+  const handlePhoneNumber = async (event: PhoneNumberEvent) => {
+    if (loading || isFinishing.current) return
+    const phoneCode = event.detail.code
+    if (!phoneCode || event.detail.errMsg.includes('fail')) {
+      Taro.showToast({ title: '未授权手机号，可继续游客体验', icon: 'none' })
+      return
+    }
+    setLoading(true)
+    try {
+      const loginResult = await Taro.login()
+      if (!loginResult.code) throw new Error('LOGIN_CODE_MISSING')
+      await completeWechatLogin(loginResult.code, phoneCode)
+      if (mounted.current) enterHome()
+    } catch {
+      if (mounted.current) Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+    } finally {
+      if (mounted.current) setLoading(false)
+    }
   }
 
   return (
@@ -44,6 +71,8 @@ export default function AuthPage() {
           className='auth-sheet__phone'
           openType='getPhoneNumber'
           onGetPhoneNumber={handlePhoneNumber}
+          loading={loading}
+          disabled={loading}
         >
           微信手机号快捷登录
         </Button>
