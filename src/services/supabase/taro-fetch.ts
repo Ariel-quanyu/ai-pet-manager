@@ -1,15 +1,21 @@
 import Taro from '@tarojs/taro'
 
-const headersToRecord = (headers?: HeadersInit): Record<string, string> => {
+export const headersToRecord = (headers?: HeadersInit): Record<string, string> => {
   if (!headers) return {}
-  if (headers instanceof Headers) return Object.fromEntries(headers.entries())
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) return Object.fromEntries(headers.entries())
   if (Array.isArray(headers)) return Object.fromEntries(headers)
   return { ...headers }
 }
 
-/** Fetch-compatible transport for WeChat, where the browser fetch API is absent. */
+const requestUrl = (input: RequestInfo | URL): string => {
+  if (typeof input === 'string') return input
+  if (typeof URL !== 'undefined' && input instanceof URL) return String(input)
+  return (input as Request).url
+}
+
+/** Fetch-compatible transport for WeChat, where browser Fetch globals may be absent. */
 export const taroFetch: typeof fetch = async (input, init = {}) => {
-  const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url
+  const url = requestUrl(input)
   const result = await Taro.request({
     url,
     method: (init.method || 'GET') as keyof Taro.request.Method,
