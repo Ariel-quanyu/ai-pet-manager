@@ -66,7 +66,7 @@ export default function AuthPage() {
           <Text>登录宠物管家</Text>
         </View>
         <Text className='auth-sheet__title'>使用微信绑定手机号登录</Text>
-        <Text className='auth-sheet__hint'>点击登录后将由微信发起一次手机号授权；当前版本不会上传或保存手机号</Text>
+        <Text className='auth-sheet__hint'>授权后将安全保存微信绑定手机号，用于创建和识别你的宠物管家账户</Text>
         <Button
           className='auth-sheet__phone'
           openType='getPhoneNumber'

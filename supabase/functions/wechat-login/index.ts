@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4'
-import { ERROR_CODES, parseCodes, SafeError, safeJson } from './core.ts'
+import { ERROR_CODES, normalizeWechatPhone, parseCodes, SafeError, safeJson } from './core.ts'
 
 const APP_ID = Deno.env.get('WECHAT_APP_ID') || ''
 const APP_SECRET = Deno.env.get('WECHAT_APP_SECRET') || ''
@@ -47,11 +47,11 @@ Deno.serve(async (request) => {
     if (!wxLogin.openid || wxLogin.errcode) throw new SafeError(ERROR_CODES.login)
 
     const token = await accessToken()
-    const wxPhone = await jsonFetch<{ errcode?: number; phone_info?: { phoneNumber?: string } }>(`https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${encodeURIComponent(token)}`, {
+    const wxPhone = await jsonFetch<{ errcode?: number; phone_info?: { phoneNumber?: string; purePhoneNumber?: string; countryCode?: string } }>(`https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${encodeURIComponent(token)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: phoneCode }),
     })
-    const phone = wxPhone.phone_info?.phoneNumber
-    if (wxPhone.errcode || !phone) throw new SafeError(ERROR_CODES.phone)
+    if (wxPhone.errcode) throw new SafeError(ERROR_CODES.phone)
+    const phone = normalizeWechatPhone(wxPhone.phone_info)
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
     const candidate = await admin.auth.admin.createUser({ email: `${crypto.randomUUID()}@wechat.invalid`, email_confirm: true })

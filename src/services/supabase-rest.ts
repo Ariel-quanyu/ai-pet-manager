@@ -1,17 +1,14 @@
 import Taro from '@tarojs/taro'
+import { assertSupabaseConfigured, supabase } from './supabase/client'
 
 interface StoredSession { accessToken:string; refreshToken:string; expiresAt:number; userId:string }
-interface AuthPayload { access_token:string; refresh_token:string; expires_in:number; user:{id:string} }
 interface RequestOptions { method?:'GET'|'POST'|'PATCH'; body?:unknown; token?:string; prefer?:string }
 
-const SESSION_KEY='ai-pet-manager:supabase-session'
 const url=(process.env.TARO_APP_SUPABASE_URL||'').replace(/\/$/,'')
-const apiKey=process.env.TARO_APP_SUPABASE_PUBLISHABLE_KEY||process.env.TARO_APP_SUPABASE_ANON_KEY||''
-
-const assertConfigured=()=>{if(!url||!apiKey)throw new Error('请先配置 Supabase 环境变量')}
+const apiKey=process.env.TARO_APP_SUPABASE_PUBLISHABLE_KEY||''
 
 async function request<T>(path:string,{method='GET',body,token,prefer}:RequestOptions={}):Promise<T>{
-  assertConfigured()
+  assertSupabaseConfigured()
   const response=await Taro.request<T|{message?:string;msg?:string;error_description?:string}>({
     url:`${url}${path}`,
     method,
@@ -30,23 +27,24 @@ async function request<T>(path:string,{method='GET',body,token,prefer}:RequestOp
   return response.data as T
 }
 
-const storeSession=(payload:AuthPayload):StoredSession=>{
-  const session={accessToken:payload.access_token,refreshToken:payload.refresh_token,expiresAt:Date.now()+payload.expires_in*1000,userId:payload.user.id}
-  Taro.setStorageSync(SESSION_KEY,session)
-  return session
-}
-
+/**
+ * Returns the same persisted Supabase session established by WeChat login.
+ * This module must never create a second anonymous user when no session exists.
+ */
 export async function ensureSupabaseSession():Promise<StoredSession>{
-  const saved=Taro.getStorageSync<StoredSession>(SESSION_KEY)
-  if(saved?.accessToken&&saved.expiresAt>Date.now()+60_000)return saved
-  if(saved?.refreshToken){
-    try{
-      const refreshed=await request<AuthPayload>('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:saved.refreshToken}})
-      return storeSession(refreshed)
-    }catch{Taro.removeStorageSync(SESSION_KEY)}
+  assertSupabaseConfigured()
+  const result=await supabase.auth.getSession()
+  const session=result.data.session
+  if(result.error||!session){
+    if(result.error) await supabase.auth.signOut({scope:'local'}).catch(()=>undefined)
+    throw new Error('请先使用微信登录')
   }
-  const created=await request<AuthPayload>('/auth/v1/signup',{method:'POST',body:{data:{source:'wechat-mini-program'}}})
-  return storeSession(created)
+  return {
+    accessToken:session.access_token,
+    refreshToken:session.refresh_token,
+    expiresAt:(session.expires_at||Math.floor(Date.now()/1000))*1000,
+    userId:session.user.id
+  }
 }
 
 export async function supabaseRest<T>(path:string,options:Omit<RequestOptions,'token'>={}):Promise<T>{
