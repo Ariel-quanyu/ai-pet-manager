@@ -1,0 +1,3 @@
+[functions.wechat-login]
+verify_jwt = false
+
