@@ -16,6 +16,26 @@ export function parseCodes(body: unknown): { loginCode: string; phoneCode: strin
   return { loginCode, phoneCode }
 }
 
+export interface WechatPhoneInfo {
+  phoneNumber?: string
+  purePhoneNumber?: string
+  countryCode?: string
+}
+
+/** Convert WeChat phone data to the E.164 format required by Supabase Auth. */
+export function normalizeWechatPhone(info?: WechatPhoneInfo): string {
+  const countryCode = info?.countryCode?.replace(/\D/g, '') || ''
+  const pureNumber = info?.purePhoneNumber?.replace(/\D/g, '') || ''
+  const rawNumber = info?.phoneNumber?.trim() || ''
+  const normalized = countryCode && pureNumber
+    ? `+${countryCode}${pureNumber}`
+    : rawNumber.startsWith('+')
+      ? `+${rawNumber.replace(/\D/g, '')}`
+      : ''
+  if (!/^\+[1-9]\d{7,14}$/.test(normalized)) throw new SafeError(ERROR_CODES.phone)
+  return normalized
+}
+
 export function safeJson(code: string, status: number): Response {
   return Response.json({ code }, { status, headers: { 'Cache-Control': 'no-store' } })
 }
