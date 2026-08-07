@@ -52,6 +52,14 @@ function namedKey(jsonName: string, legacyName: string): string {
   return requiredEnv(legacyName)
 }
 
+function apiKeyOnlyFetch(apiKey: string): typeof fetch {
+  return (input, init = {}) => {
+    const headers = new Headers(init.headers)
+    if (headers.get('Authorization') === `Bearer ${apiKey}`) headers.delete('Authorization')
+    return fetch(input, { ...init, headers })
+  }
+}
+
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
@@ -96,8 +104,14 @@ Deno.serve(async request => {
     const supabaseUrl = requiredEnv('SUPABASE_URL')
     const secretKey = namedKey('SUPABASE_SECRET_KEYS', 'SUPABASE_SERVICE_ROLE_KEY')
     const publishableKey = namedKey('SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_ANON_KEY')
-    const admin = createClient(supabaseUrl, secretKey, { auth: { autoRefreshToken: false, persistSession: false } })
-    const publicClient = createClient(supabaseUrl, publishableKey, { auth: { autoRefreshToken: false, persistSession: false } })
+    const admin = createClient(supabaseUrl, secretKey, {
+      global: { fetch: apiKeyOnlyFetch(secretKey) },
+      auth: { autoRefreshToken: false, persistSession: false }
+    })
+    const publicClient = createClient(supabaseUrl, publishableKey, {
+      global: { fetch: apiKeyOnlyFetch(publishableKey) },
+      auth: { autoRefreshToken: false, persistSession: false }
+    })
 
     const wechat = await exchangeLoginCode(appId, appSecret, body.loginCode)
     await verifyPhoneCode(appId, appSecret, body.phoneCode)
@@ -165,4 +179,3 @@ Deno.serve(async request => {
     return json({ message: '微信登录失败，请稍后重试' }, 500)
   }
 })
-
