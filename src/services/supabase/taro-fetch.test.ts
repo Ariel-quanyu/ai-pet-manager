@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@tarojs/taro', () => ({ default: { request: vi.fn() } }))
+
 import { headersToRecord } from './taro-fetch'
 
 describe('taroFetch header conversion', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => { vi.unstubAllGlobals() })
 
   it('handles plain headers when the WeChat runtime has no Headers global', () => {
     vi.stubGlobal('Headers', undefined)

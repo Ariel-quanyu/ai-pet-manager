@@ -7,7 +7,7 @@ vi.mock('@tarojs/taro', () => ({ default: {
 } }))
 
 describe('taroStorage', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
   it('reads stored strings and treats missing values as null', async () => {
     vi.mocked(Taro.getStorageSync).mockReturnValueOnce('session').mockReturnValueOnce('')
     await expect(taroStorage.getItem('key')).resolves.toBe('session')
