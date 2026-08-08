@@ -16,8 +16,7 @@ as $$
   where (wi.app_id = p_app_id and wi.openid = p_openid)
      or (nullif(p_unionid, '') is not null and wi.unionid = nullif(p_unionid, ''))
   order by
-    case when wi.app_id = p_app_id and wi.openid = p_openid then 0 else 1 end,
-    wi.created_at
+    case when wi.app_id = p_app_id and wi.openid = p_openid then 0 else 1 end
   limit 1;
 $$;
 
