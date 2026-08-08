@@ -13,6 +13,33 @@ const taroMocks = vi.hoisted(() => ({
 vi.mock('@tarojs/taro', () => ({ default: taroMocks }))
 vi.mock('@tarojs/components', () => ({ Button: 'button', Text: 'text', View: 'view' }))
 vi.mock('@/components/status-bar', () => ({ StatusBar: () => null }))
+vi.mock('react', () => ({
+  useEffect: vi.fn(),
+  useRef: vi.fn((initial: unknown) => ({ current: initial })),
+  useState: vi.fn((initial: unknown) => [initial, vi.fn()]),
+}))
+
+interface TestElement {
+  props?: Record<string, unknown> & { children?: unknown }
+}
+
+function findByClass(node: unknown, className: string): TestElement {
+  if (node && typeof node === 'object') {
+    const element = node as TestElement
+    if (element.props?.className === className) return element
+    const children = Array.isArray(element.props?.children)
+      ? element.props.children
+      : [element.props?.children]
+    for (const child of children) {
+      try {
+        return findByClass(child, className)
+      } catch {
+        // Continue searching sibling elements.
+      }
+    }
+  }
+  throw new Error(`Element with class ${className} not found`)
+}
 
 describe('WeChat auth runtime compatibility', () => {
   const storage = new Map<string, string>()
@@ -40,6 +67,67 @@ describe('WeChat auth runtime compatibility', () => {
       default: expect.any(Function),
       showAuthFailure: expect.any(Function),
     })
+  })
+
+  it('binds the phone button to getPhoneNumber and keeps denial on the auth page', async () => {
+    const { default: AuthPage } = await import('./index')
+    const phoneButton = findByClass(AuthPage(), 'auth-sheet__phone')
+
+    expect(phoneButton.props?.openType).toBe('getPhoneNumber')
+    expect(phoneButton.props?.onGetPhoneNumber).toEqual(expect.any(Function))
+
+    await (phoneButton.props?.onGetPhoneNumber as (event: unknown) => Promise<void>)({
+      detail: { code: '', errMsg: 'getPhoneNumber:fail user deny' },
+    })
+
+    expect(taroMocks.showToast).toHaveBeenCalledWith({
+      title: '未授权手机号，可继续游客体验',
+      icon: 'none',
+    })
+    expect(taroMocks.login).not.toHaveBeenCalled()
+    expect(taroMocks.request).not.toHaveBeenCalled()
+    expect(taroMocks.redirectTo).not.toHaveBeenCalled()
+  })
+
+  it('exchanges the phone authorization code with a fresh Taro login code', async () => {
+    const session = {
+      access_token: 'access-token',
+      refresh_token: 'refresh-token',
+      expires_in: 3600,
+      token_type: 'bearer',
+      user: { id: 'user-id' },
+    }
+    taroMocks.login.mockResolvedValueOnce({ code: 'fresh-login-code' })
+    taroMocks.request
+      .mockResolvedValueOnce({ statusCode: 200, data: session })
+      .mockResolvedValueOnce({ statusCode: 200, data: session.user })
+
+    const { default: AuthPage } = await import('./index')
+    const phoneButton = findByClass(AuthPage(), 'auth-sheet__phone')
+    await (phoneButton.props?.onGetPhoneNumber as (event: unknown) => Promise<void>)({
+      detail: { code: 'phone-code', errMsg: 'getPhoneNumber:ok' },
+    })
+
+    expect(taroMocks.login).toHaveBeenCalledOnce()
+    expect(taroMocks.request).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      url: 'https://test-ref.supabase.co/functions/v1/wechat-login',
+      data: { loginCode: 'fresh-login-code', phoneCode: 'phone-code' },
+    }))
+    expect(taroMocks.redirectTo).toHaveBeenCalledWith({ url: '/features/home/index' })
+  })
+
+  it('keeps the explicit guest experience available without starting login', async () => {
+    const { default: AuthPage } = await import('./index')
+    const guestButton = findByClass(AuthPage(), 'auth-sheet__guest')
+    const enterAsGuest = guestButton.props?.onClick as () => void
+
+    expect(enterAsGuest).toEqual(expect.any(Function))
+    enterAsGuest()
+
+    expect(taroMocks.showToast).toHaveBeenCalledWith({ title: '已进入体验模式', icon: 'none' })
+    expect(taroMocks.redirectTo).toHaveBeenCalledWith({ url: '/features/home/index' })
+    expect(taroMocks.login).not.toHaveBeenCalled()
+    expect(taroMocks.request).not.toHaveBeenCalled()
   })
 
   it('uses Taro.request for wechat-login and persists the returned session', async () => {
