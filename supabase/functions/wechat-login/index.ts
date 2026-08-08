@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4'
+import { resolveOrCreateWechatAccount } from './account.ts'
 import { ERROR_CODES, normalizeWechatPhone, parseCodes, SafeError, safeJson } from './core.ts'
 
 const APP_ID = Deno.env.get('WECHAT_APP_ID') || ''
@@ -54,26 +55,55 @@ Deno.serve(async (request) => {
     const phone = normalizeWechatPhone(wxPhone.phone_info)
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
-    const candidate = await admin.auth.admin.createUser({ email: `${crypto.randomUUID()}@wechat.invalid`, email_confirm: true })
-    if (candidate.error || !candidate.data.user) throw new SafeError(ERROR_CODES.internal, 500)
+    const account = await resolveOrCreateWechatAccount<{ id: string; email?: string }>({
+      resolveIdentity: async () => {
+        const result = await admin.rpc('resolve_wechat_identity', {
+          p_app_id: APP_ID,
+          p_openid: wxLogin.openid,
+          p_unionid: wxLogin.unionid || null,
+        }).maybeSingle()
+        if (result.error) throw new SafeError(ERROR_CODES.internal, 500)
+        return (result.data?.user_id as string | undefined) || null
+      },
+      createCandidate: async (candidatePhone) => {
+        const result = await admin.auth.admin.createUser({
+          email: `${crypto.randomUUID()}@wechat.invalid`,
+          email_confirm: true,
+          phone: candidatePhone,
+          phone_confirm: true,
+        })
+        return { user: result.data.user, errorMessage: result.error?.message }
+      },
+      claimIdentity: async (candidateUserId) => {
+        const result = await admin.rpc('claim_wechat_identity', {
+          p_app_id: APP_ID,
+          p_openid: wxLogin.openid,
+          p_unionid: wxLogin.unionid || null,
+          p_candidate_user_id: candidateUserId,
+        }).single()
+        if (result.error || !result.data?.user_id) throw new SafeError(ERROR_CODES.internal, 500)
+        return {
+          userId: result.data.user_id as string,
+          inserted: Boolean(result.data.inserted),
+        }
+      },
+      deleteCandidate: async (userId) => {
+        const result = await admin.auth.admin.deleteUser(userId)
+        if (result.error) throw new SafeError(ERROR_CODES.internal, 500)
+      },
+      updateExisting: async (userId, existingPhone) => {
+        const result = await admin.auth.admin.updateUserById(userId, {
+          phone: existingPhone,
+          phone_confirm: true,
+        })
+        return { user: result.data.user, errorMessage: result.error?.message }
+      },
+    }, phone)
 
-    const claim = await admin.rpc('claim_wechat_identity', { p_app_id: APP_ID, p_openid: wxLogin.openid, p_unionid: wxLogin.unionid || null, p_candidate_user_id: candidate.data.user.id }).single()
-    if (claim.error || !claim.data?.user_id) {
-      await admin.auth.admin.deleteUser(candidate.data.user.id)
-      throw new SafeError(ERROR_CODES.internal, 500)
-    }
-    const userId = claim.data.user_id as string
-    if (!claim.data.inserted) await admin.auth.admin.deleteUser(candidate.data.user.id)
-
-    const update = await admin.auth.admin.updateUserById(userId, { phone, phone_confirm: true })
-    if (update.error) {
-      if (/already|registered|exists/i.test(update.error.message)) throw new SafeError(ERROR_CODES.bound, 409)
-      throw new SafeError(ERROR_CODES.internal, 500)
-    }
-    const profile = await admin.from('profiles').update({ phone_verified: true }).eq('id', userId)
+    const profile = await admin.from('profiles').update({ phone_verified: true }).eq('id', account.user.id)
     if (profile.error) throw new SafeError(ERROR_CODES.internal, 500)
 
-    const email = update.data.user.email
+    const email = account.user.email
     if (!email) throw new SafeError(ERROR_CODES.session, 500)
     const link = await admin.auth.admin.generateLink({ type: 'magiclink', email })
     const tokenHash = link.data.properties?.hashed_token
