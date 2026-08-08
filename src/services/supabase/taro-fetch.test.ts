@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@tarojs/taro', () => ({ default: { request: vi.fn() } }))
+
 import { headersToRecord } from './taro-fetch'
 
 describe('taroFetch header conversion', () => {
