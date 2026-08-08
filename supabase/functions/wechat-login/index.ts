@@ -1,6 +1,14 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4'
 import { resolveOrCreateWechatAccount } from './account.ts'
-import { ERROR_CODES, normalizeWechatPhone, parseCodes, SafeError, safeJson } from './core.ts'
+import {
+  ERROR_CODES,
+  normalizeWechatPhone,
+  parseCodes,
+  requireWechatLoginSuccess,
+  SafeError,
+  safeJson,
+  type WechatLoginResult,
+} from './core.ts'
 
 const APP_ID = Deno.env.get('WECHAT_APP_ID') || ''
 const APP_SECRET = Deno.env.get('WECHAT_APP_SECRET') || ''
@@ -44,8 +52,9 @@ Deno.serve(async (request) => {
     const { loginCode, phoneCode } = parseCodes(raw)
 
     const loginQuery = new URLSearchParams({ appid: APP_ID, secret: APP_SECRET, js_code: loginCode, grant_type: 'authorization_code' })
-    const wxLogin = await jsonFetch<{ openid?: string; unionid?: string; errcode?: number }>(`https://api.weixin.qq.com/sns/jscode2session?${loginQuery}`)
-    if (!wxLogin.openid || wxLogin.errcode) throw new SafeError(ERROR_CODES.login)
+    const wxLogin = requireWechatLoginSuccess(
+      await jsonFetch<WechatLoginResult>(`https://api.weixin.qq.com/sns/jscode2session?${loginQuery}`),
+    )
 
     const token = await accessToken()
     const wxPhone = await jsonFetch<{ errcode?: number; phone_info?: { phoneNumber?: string; purePhoneNumber?: string; countryCode?: string } }>(`https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${encodeURIComponent(token)}`, {
