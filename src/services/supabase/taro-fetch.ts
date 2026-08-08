@@ -2,9 +2,16 @@ import Taro from '@tarojs/taro'
 
 export const headersToRecord = (headers?: HeadersInit): Record<string, string> => {
   if (!headers) return {}
-  if (typeof Headers !== 'undefined' && headers instanceof Headers) return Object.fromEntries(headers.entries())
-  if (Array.isArray(headers)) return Object.fromEntries(headers)
-  return { ...headers }
+  if (Array.isArray(headers)) return Object.fromEntries(headers.map(([key, value]) => [key, String(value)]))
+
+  const result: Record<string, string> = {}
+  if (typeof (headers as Headers).forEach === 'function') {
+    ;(headers as Headers).forEach((value, key) => { result[key] = value })
+    return result
+  }
+
+  for (const [key, value] of Object.entries(headers)) result[key] = String(value)
+  return result
 }
 
 const requestUrl = (input: RequestInfo | URL): string => {
