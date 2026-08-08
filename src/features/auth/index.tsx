@@ -3,10 +3,14 @@ import type { ButtonProps } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useEffect, useRef, useState } from 'react'
 import { StatusBar } from '@/components/status-bar'
-import { completeWechatLogin, restoreAuthSession } from '@/services/auth-session'
+import { completeWechatLogin, readableAuthError, restoreAuthSession } from '@/services/auth-session'
 import './index.scss'
 
 type PhoneNumberEvent = Parameters<NonNullable<ButtonProps['onGetPhoneNumber']>>[0]
+
+export function showAuthFailure(error: unknown): void {
+  Taro.showToast({ title: readableAuthError(error), icon: 'none' })
+}
 
 export default function AuthPage() {
   const isFinishing = useRef(false)
@@ -44,8 +48,8 @@ export default function AuthPage() {
       if (!loginResult.code) throw new Error('LOGIN_CODE_MISSING')
       await completeWechatLogin(loginResult.code, phoneCode)
       if (mounted.current) enterHome()
-    } catch {
-      if (mounted.current) Taro.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+    } catch (error) {
+      if (mounted.current) showAuthFailure(error)
     } finally {
       if (mounted.current) setLoading(false)
     }
