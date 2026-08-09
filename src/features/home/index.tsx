@@ -9,7 +9,7 @@ import type { Pet } from '@/domain/pet'
 import './index.scss'
 const shortcuts=[['▣','AI宠物管家'],['▤','计次卡'],['✪','积分商城'],['▱','其他']]
 export default function HomePage(){
- const [pets,setPets]=useState<Pet[]>(petRepository.list())
+ const [pets,setPets]=useState<Pet[]>([])
  const [city,setCity]=useState(getStoredCity)
  const [locating,setLocating]=useState(false)
  const [manualLocating,setManualLocating]=useState(false)
@@ -48,7 +48,7 @@ export default function HomePage(){
   }
  }
  useDidShow(()=>{
-  setPets(petRepository.list())
+  void petRepository.list().then(setPets).catch(()=>Taro.showToast({title:'宠物档案加载失败，请稍后重试',icon:'none'}))
   const storedCity=getStoredCity()
   setCity(storedCity)
   void locate(false)
