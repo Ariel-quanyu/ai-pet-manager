@@ -15,7 +15,7 @@ const bowelOptions=['正常','偏少','腹泻','便秘','排尿异常']
 
 export default function ClinicAppointmentPage(){
   const dates=useMemo(()=>buildAppointmentDates(),[])
-  const [form,setForm]=useState<AppointmentForm>({clinic:null,date:dates[0].iso,slot:null,pet:petRepository.list()[0]||null,symptoms:'',onsetDate:'',mentalAppetite:'',bowelUrine:'',notes:''})
+  const [form,setForm]=useState<AppointmentForm>({clinic:null,date:dates[0].iso,slot:null,pet:null,symptoms:'',onsetDate:'',mentalAppetite:'',bowelUrine:'',notes:''})
   const [slots,setSlots]=useState<ClinicSlot[]>([])
   const [loadingSlots,setLoadingSlots]=useState(false)
   const [submitting,setSubmitting]=useState(false)
@@ -26,6 +26,7 @@ export default function ClinicAppointmentPage(){
     const pet=Taro.getStorageSync<Pet>(PET_KEY)
     if(clinic)setForm(current=>current.clinic?.id===clinic.id?current:{...current,clinic,slot:null})
     if(pet)patch('pet',pet)
+    else void petRepository.list().then(pets=>{if(pets[0])patch('pet',pets[0])}).catch(()=>undefined)
   })
 
   useEffect(()=>{

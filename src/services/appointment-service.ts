@@ -1,6 +1,6 @@
-import type { Pet } from '@/domain/pet'
 import type { AppointmentDetail, AppointmentForm, Clinic, ClinicSlot } from '@/domain/appointment'
 import { supabaseRest } from './supabase-rest'
+import { upsertCloudPet } from './pet-repository'
 
 interface ClinicRow {
   id:string
@@ -14,7 +14,6 @@ interface ClinicRow {
   image_url:string|null
 }
 interface SlotRow { id:string; start_time:string; end_time:string; capacity:number; booked:number; available:boolean }
-interface PetRow { id:string }
 interface AppointmentRow {
   id:string; appointment_no:string; appointment_date:string; start_time:string; end_time:string; status:string;
   symptoms:string; onset_date:string; mental_appetite:string; bowel_urine:string; notes:string|null;
@@ -35,15 +34,9 @@ export async function listAvailableSlots(clinicId:string,date:string):Promise<Cl
   return rows.map(row=>({id:row.id,startTime:row.start_time,endTime:row.end_time,capacity:row.capacity,booked:row.booked,available:row.available}))
 }
 
-async function ensureCloudPet(pet:Pet):Promise<string>{
-  const rows=await supabaseRest<PetRow[]>('pets?on_conflict=user_id,client_key&select=id',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:{client_key:pet.id,name:pet.name,type:pet.type,sex:pet.sex,avatar_url:pet.avatar||null,birthday:pet.birthday||null,breed:pet.breed||null}})
-  if(!rows[0]?.id)throw new Error('宠物档案同步失败')
-  return rows[0].id
-}
-
 export async function bookAppointment(form:AppointmentForm):Promise<string>{
   if(!form.clinic||!form.slot||!form.pet)throw new Error('预约信息不完整')
-  const petId=await ensureCloudPet(form.pet)
+  const petId=await upsertCloudPet(form.pet)
   return supabaseRest<string>('rpc/book_clinic_appointment',{method:'POST',body:{
     p_clinic_id:form.clinic.id,p_pet_id:petId,p_slot_id:form.slot.id,p_appointment_date:form.date,
     p_symptoms:form.symptoms.trim(),p_onset_date:form.onsetDate,p_mental_appetite:form.mentalAppetite,
