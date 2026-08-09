@@ -18,7 +18,7 @@ function dependencies(overrides: Partial<WechatAccountDependencies<TestUser>> = 
     })),
     claimIdentity: vi.fn(async () => ({ userId: 'candidate', inserted: true })),
     deleteCandidate: vi.fn(async () => undefined),
-    updateExisting: vi.fn(async (userId) => ({
+    getExisting: vi.fn(async (userId) => ({
       user: { id: userId, email: 'existing@wechat.invalid' },
     })),
   }
@@ -26,30 +26,30 @@ function dependencies(overrides: Partial<WechatAccountDependencies<TestUser>> = 
 }
 
 describe('WeChat account provisioning', () => {
-  it('updates an existing WeChat user without creating a candidate', async () => {
+  it('reuses an existing WeChat user without creating a candidate', async () => {
     const deps = dependencies({
       resolveIdentity: vi.fn(async () => 'existing'),
     })
 
-    await expect(resolveOrCreateWechatAccount(deps, '+8613222201527')).resolves.toEqual({
+    await expect(resolveOrCreateWechatAccount(deps)).resolves.toEqual({
       user: { id: 'existing', email: 'existing@wechat.invalid' },
       inserted: false,
     })
     expect(deps.createCandidate).not.toHaveBeenCalled()
-    expect(deps.updateExisting).toHaveBeenCalledWith('existing', '+8613222201527')
+    expect(deps.getExisting).toHaveBeenCalledWith('existing')
   })
 
-  it('stops before identity creation when the phone is already bound', async () => {
+  it('stops before identity creation when Auth user creation fails', async () => {
     const deps = dependencies({
       createCandidate: vi.fn(async () => ({
         user: null,
-        errorMessage: 'A user with this phone already exists',
+        errorMessage: 'Auth unavailable',
       })),
     })
 
-    await expect(resolveOrCreateWechatAccount(deps, '+8613222201527')).rejects.toMatchObject({
-      code: ERROR_CODES.bound,
-      status: 409,
+    await expect(resolveOrCreateWechatAccount(deps)).rejects.toMatchObject({
+      code: ERROR_CODES.internal,
+      status: 500,
     })
     expect(deps.claimIdentity).not.toHaveBeenCalled()
     expect(deps.deleteCandidate).not.toHaveBeenCalled()
@@ -62,7 +62,7 @@ describe('WeChat account provisioning', () => {
       }),
     })
 
-    await expect(resolveOrCreateWechatAccount(deps, '+8613222201527')).rejects.toMatchObject({
+    await expect(resolveOrCreateWechatAccount(deps)).rejects.toMatchObject({
       code: ERROR_CODES.internal,
     })
     expect(deps.deleteCandidate).toHaveBeenCalledWith('candidate')
@@ -73,13 +73,13 @@ describe('WeChat account provisioning', () => {
     const deps = dependencies({
       claimIdentity: vi.fn(async () => ({ userId: 'winner', inserted: false })),
       deleteCandidate: vi.fn(async () => { events.push('delete-candidate') }),
-      updateExisting: vi.fn(async (userId) => {
+      getExisting: vi.fn(async (userId) => {
         events.push('update-existing')
         return { user: { id: userId, email: 'winner@wechat.invalid' } }
       }),
     })
 
-    await expect(resolveOrCreateWechatAccount(deps, '+8613222201527')).resolves.toMatchObject({
+    await expect(resolveOrCreateWechatAccount(deps)).resolves.toMatchObject({
       user: { id: 'winner' },
       inserted: false,
     })

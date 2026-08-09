@@ -43,6 +43,7 @@ export interface PetRepository {
 export class SupabasePetRepository implements PetRepository {
   async syncLocalPets(): Promise<void> {
     if (!await getStoredSession()) return
+    let failed = false
     for (const pet of localPets()) {
       try {
         await upsertCloudPet(pet)
@@ -50,8 +51,10 @@ export class SupabasePetRepository implements PetRepository {
         storeLocalPets(localPets().filter(candidate => candidate.id !== pet.id))
       } catch {
         // Preserve failed records for the next first-load synchronization attempt.
+        failed = true
       }
     }
+    if (failed) throw new Error('宠物档案同步失败，请稍后重试')
   }
 
   async list(): Promise<Pet[]> {

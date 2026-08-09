@@ -16,10 +16,10 @@ export interface IdentityClaim {
 
 export interface WechatAccountDependencies<TUser extends AccountUser> {
   resolveIdentity(): Promise<string | null>
-  createCandidate(phone: string): Promise<AuthResult<TUser>>
+  createCandidate(): Promise<AuthResult<TUser>>
   claimIdentity(candidateUserId: string): Promise<IdentityClaim>
   deleteCandidate(userId: string): Promise<void>
-  updateExisting(userId: string, phone: string): Promise<AuthResult<TUser>>
+  getExisting(userId: string): Promise<AuthResult<TUser>>
 }
 
 export interface WechatAccountResult<TUser extends AccountUser> {
@@ -27,12 +27,9 @@ export interface WechatAccountResult<TUser extends AccountUser> {
   inserted: boolean
 }
 
-const PHONE_CONFLICT_PATTERN = /already|registered|exists|duplicate|unique/i
-
 export function authFailure(message?: string): SafeError {
-  return PHONE_CONFLICT_PATTERN.test(message || '')
-    ? new SafeError(ERROR_CODES.bound, 409)
-    : new SafeError(ERROR_CODES.internal, 500)
+  void message
+  return new SafeError(ERROR_CODES.internal, 500)
 }
 
 function requireUser<TUser extends AccountUser>(result: AuthResult<TUser>): TUser {
@@ -42,22 +39,21 @@ function requireUser<TUser extends AccountUser>(result: AuthResult<TUser>): TUse
 
 /**
  * Resolve an existing WeChat identity before creating anything. New users are
- * created with their phone in the same Auth Admin operation, so a unique-phone
- * conflict cannot leave behind an identity row, profile, or phone-less user.
+ * created only when needed. The identity claim RPC serializes concurrent first
+ * logins; a losing candidate is deleted before the winning account is reused.
  */
 export async function resolveOrCreateWechatAccount<TUser extends AccountUser>(
   dependencies: WechatAccountDependencies<TUser>,
-  phone: string,
 ): Promise<WechatAccountResult<TUser>> {
   const existingUserId = await dependencies.resolveIdentity()
   if (existingUserId) {
     return {
-      user: requireUser(await dependencies.updateExisting(existingUserId, phone)),
+      user: requireUser(await dependencies.getExisting(existingUserId)),
       inserted: false,
     }
   }
 
-  const candidate = requireUser(await dependencies.createCandidate(phone))
+  const candidate = requireUser(await dependencies.createCandidate())
   let candidateDeleted = false
 
   try {
@@ -72,7 +68,7 @@ export async function resolveOrCreateWechatAccount<TUser extends AccountUser>(
     await dependencies.deleteCandidate(candidate.id)
     candidateDeleted = true
     return {
-      user: requireUser(await dependencies.updateExisting(claim.userId, phone)),
+      user: requireUser(await dependencies.getExisting(claim.userId)),
       inserted: false,
     }
   } catch (error) {

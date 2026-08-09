@@ -60,7 +60,7 @@ describe('SupabasePetRepository', () => {
   it('migrates local pets and only clears records confirmed by Supabase', async() => {
     login(); const second = { ...pet, id: 'pet-2', name: '未同步' }; mocks.storage.set(key, [pet, second])
     mocks.rest.mockResolvedValueOnce([{ id: 'cloud-id' }]).mockRejectedValueOnce(new Error('offline'))
-    await new SupabasePetRepository().syncLocalPets()
+    await expect(new SupabasePetRepository().syncLocalPets()).rejects.toThrow('宠物档案同步失败')
     expect(mocks.storage.get(key)).toEqual([second])
   })
 
