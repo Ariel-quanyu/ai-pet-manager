@@ -67,10 +67,10 @@ export async function getStoredSession(): Promise<StoredSession | null> {
   }
 }
 
-export async function completeWechatLogin(loginCode: string, phoneCode: string): Promise<void> {
+export async function completeWechatLogin(loginCode: string): Promise<void> {
   const payload: unknown = await supabaseRequest<unknown>('/functions/v1/wechat-login', {
     method: 'POST',
-    body: { loginCode, phoneCode },
+    body: { loginCode },
     usePublishableToken: true,
   })
   if (!isSession(payload)) {
@@ -80,7 +80,11 @@ export async function completeWechatLogin(loginCode: string, phoneCode: string):
     throw new SupabaseRequestError(code, '登录服务返回了无效会话')
   }
   const session = payload
-  await saveSession(session)
+  try {
+    await saveSession(session)
+  } catch {
+    throw new SupabaseRequestError('SESSION_SAVE_FAILED', '无法保存登录状态')
+  }
   try {
     if (!await validateSession(session)) throw new Error('SESSION_INVALID')
   } catch (error) {
@@ -115,8 +119,7 @@ export async function signOut(): Promise<void> {
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   INVALID_REQUEST: '登录信息无效，请重试',
   WECHAT_LOGIN_FAILED: '微信登录凭证已过期，请重试',
-  PHONE_AUTH_FAILED: '手机号授权失败，请重新授权',
-  PHONE_ALREADY_BOUND: '该手机号已绑定其他账号',
+  SESSION_SAVE_FAILED: '登录状态保存失败，请稍后重试',
   SESSION_CREATION_FAILED: '登录服务暂时不可用，请稍后重试',
   INTERNAL_ERROR: '登录服务暂时不可用，请稍后重试',
   NETWORK_ERROR: '网络连接失败，请检查网络后重试',

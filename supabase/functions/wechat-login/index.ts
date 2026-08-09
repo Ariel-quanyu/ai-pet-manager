@@ -2,8 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4'
 import { resolveOrCreateWechatAccount } from './account.ts'
 import {
   ERROR_CODES,
-  normalizeWechatPhone,
-  parseCodes,
+  parseLoginCode,
   requireWechatLoginSuccess,
   SafeError,
   safeJson,
@@ -16,7 +15,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
 const MAX_BODY_BYTES = 2048
 const timeoutMs = 8_000
-let tokenCache: { value: string; expiresAt: number } | undefined
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController()
@@ -28,16 +26,9 @@ async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
   } finally { clearTimeout(timer) }
 }
 
-async function accessToken(): Promise<string> {
-  if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) return tokenCache.value
-  const query = new URLSearchParams({ grant_type: 'client_credential', appid: APP_ID, secret: APP_SECRET })
-  const data = await jsonFetch<{ access_token?: string; expires_in?: number; errcode?: number }>(`https://api.weixin.qq.com/cgi-bin/token?${query}`)
-  if (!data.access_token || data.errcode) throw new SafeError(ERROR_CODES.phone)
-  tokenCache = { value: data.access_token, expiresAt: Date.now() + Math.min(data.expires_in || 7200, 7200) * 1000 }
-  return data.access_token
-}
-
 Deno.serve(async (request) => {
+  const requestId = crypto.randomUUID()
+  let stage = 'request'
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, apikey' } })
   if (request.method !== 'POST') return safeJson(ERROR_CODES.invalid, 405)
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return safeJson(ERROR_CODES.invalid, 415)
@@ -49,20 +40,15 @@ Deno.serve(async (request) => {
     if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) throw new SafeError(ERROR_CODES.invalid, 413)
     let raw: unknown
     try { raw = JSON.parse(text) } catch { throw new SafeError(ERROR_CODES.invalid) }
-    const { loginCode, phoneCode } = parseCodes(raw)
+    const { loginCode } = parseLoginCode(raw)
 
+    stage = 'code2session'
     const loginQuery = new URLSearchParams({ appid: APP_ID, secret: APP_SECRET, js_code: loginCode, grant_type: 'authorization_code' })
     const wxLogin = requireWechatLoginSuccess(
       await jsonFetch<WechatLoginResult>(`https://api.weixin.qq.com/sns/jscode2session?${loginQuery}`),
     )
 
-    const token = await accessToken()
-    const wxPhone = await jsonFetch<{ errcode?: number; phone_info?: { phoneNumber?: string; purePhoneNumber?: string; countryCode?: string } }>(`https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=${encodeURIComponent(token)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: phoneCode }),
-    })
-    if (wxPhone.errcode) throw new SafeError(ERROR_CODES.phone)
-    const phone = normalizeWechatPhone(wxPhone.phone_info)
-
+    stage = 'account'
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
     const account = await resolveOrCreateWechatAccount<{ id: string; email?: string }>({
       resolveIdentity: async () => {
@@ -74,12 +60,10 @@ Deno.serve(async (request) => {
         if (result.error) throw new SafeError(ERROR_CODES.internal, 500)
         return (result.data?.user_id as string | undefined) || null
       },
-      createCandidate: async (candidatePhone) => {
+      createCandidate: async () => {
         const result = await admin.auth.admin.createUser({
           email: `${crypto.randomUUID()}@wechat.invalid`,
           email_confirm: true,
-          phone: candidatePhone,
-          phone_confirm: true,
         })
         return { user: result.data.user, errorMessage: result.error?.message }
       },
@@ -100,18 +84,13 @@ Deno.serve(async (request) => {
         const result = await admin.auth.admin.deleteUser(userId)
         if (result.error) throw new SafeError(ERROR_CODES.internal, 500)
       },
-      updateExisting: async (userId, existingPhone) => {
-        const result = await admin.auth.admin.updateUserById(userId, {
-          phone: existingPhone,
-          phone_confirm: true,
-        })
+      getExisting: async (userId) => {
+        const result = await admin.auth.admin.getUserById(userId)
         return { user: result.data.user, errorMessage: result.error?.message }
       },
-    }, phone)
+    })
 
-    const profile = await admin.from('profiles').update({ phone_verified: true }).eq('id', account.user.id)
-    if (profile.error) throw new SafeError(ERROR_CODES.internal, 500)
-
+    stage = 'session'
     const email = account.user.email
     if (!email) throw new SafeError(ERROR_CODES.session, 500)
     const link = await admin.auth.admin.generateLink({ type: 'magiclink', email })
@@ -123,7 +102,7 @@ Deno.serve(async (request) => {
     return Response.json(verified.data.session, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     // Deliberately log only a stable category; sensitive inputs and upstream bodies are never logged.
-    console.error('wechat-login request failed')
+    console.error('wechat-login request failed', JSON.stringify({ requestId, stage, code: error instanceof SafeError ? error.code : ERROR_CODES.internal }))
     return error instanceof SafeError ? safeJson(error.code, error.status) : safeJson(ERROR_CODES.internal, 500)
   }
 })

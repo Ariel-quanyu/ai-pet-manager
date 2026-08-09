@@ -1,12 +1,10 @@
 import { Button, Text, View } from '@tarojs/components'
-import type { ButtonProps } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useEffect, useRef, useState } from 'react'
 import { StatusBar } from '@/components/status-bar'
 import { completeWechatLogin, readableAuthError, restoreAuthSession } from '@/services/auth-session'
+import { petRepository } from '@/services/pet-repository'
 import './index.scss'
-
-type PhoneNumberEvent = Parameters<NonNullable<ButtonProps['onGetPhoneNumber']>>[0]
 
 export function showAuthFailure(error: unknown): void {
   Taro.showToast({ title: readableAuthError(error), icon: 'none' })
@@ -14,6 +12,7 @@ export function showAuthFailure(error: unknown): void {
 
 export default function AuthPage() {
   const isFinishing = useRef(false)
+  const loginInFlight = useRef(false)
   const mounted = useRef(true)
   const [loading, setLoading] = useState(false)
 
@@ -35,22 +34,26 @@ export default function AuthPage() {
     Taro.redirectTo({ url: '/features/home/index' })
   }
 
-  const handlePhoneNumber = async (event: PhoneNumberEvent) => {
-    if (loading || isFinishing.current) return
-    const phoneCode = event.detail.code
-    if (!phoneCode || event.detail.errMsg.includes('fail')) {
-      Taro.showToast({ title: '未授权手机号，可继续游客体验', icon: 'none' })
-      return
-    }
+  const handleWechatLogin = async () => {
+    if (loginInFlight.current || isFinishing.current) return
+    loginInFlight.current = true
     setLoading(true)
     try {
       const loginResult = await Taro.login()
       if (!loginResult.code) throw new Error('LOGIN_CODE_MISSING')
-      await completeWechatLogin(loginResult.code, phoneCode)
+      await completeWechatLogin(loginResult.code)
+      try {
+        await petRepository.syncLocalPets()
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') console.error('Local pet sync failed after login', error)
+        if (mounted.current) Taro.showToast({ title: '登录成功，宠物同步失败，请稍后重试', icon: 'none' })
+      }
       if (mounted.current) enterHome()
     } catch (error) {
+      if (process.env.NODE_ENV !== 'production') console.error('WeChat login failed', error)
       if (mounted.current) showAuthFailure(error)
     } finally {
+      loginInFlight.current = false
       if (mounted.current) setLoading(false)
     }
   }
@@ -69,16 +72,15 @@ export default function AuthPage() {
           <Text className='mini-logo'>◉</Text>
           <Text>登录宠物管家</Text>
         </View>
-        <Text className='auth-sheet__title'>使用微信绑定手机号登录</Text>
-        <Text className='auth-sheet__hint'>授权后将安全保存微信绑定手机号，用于创建和识别你的宠物管家账户</Text>
+        <Text className='auth-sheet__title'>使用微信登录</Text>
+        <Text className='auth-sheet__hint'>登录后可安全同步你的宠物档案</Text>
         <Button
           className='auth-sheet__phone'
-          openType='getPhoneNumber'
-          onGetPhoneNumber={handlePhoneNumber}
+          onClick={handleWechatLogin}
           loading={loading}
           disabled={loading}
         >
-          微信手机号快捷登录
+          微信登录
         </Button>
         <Button className='auth-sheet__guest' onClick={() => enterHome(true)}>
           暂不登录，游客体验

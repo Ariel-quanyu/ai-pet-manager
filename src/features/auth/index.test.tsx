@@ -69,27 +69,16 @@ describe('WeChat auth runtime compatibility', () => {
     })
   })
 
-  it('binds the phone button to getPhoneNumber and keeps denial on the auth page', async () => {
+  it('uses a normal button rather than getPhoneNumber', async () => {
     const { default: AuthPage } = await import('./index')
     const phoneButton = findByClass(AuthPage(), 'auth-sheet__phone')
 
-    expect(phoneButton.props?.openType).toBe('getPhoneNumber')
-    expect(phoneButton.props?.onGetPhoneNumber).toEqual(expect.any(Function))
-
-    await (phoneButton.props?.onGetPhoneNumber as (event: unknown) => Promise<void>)({
-      detail: { code: '', errMsg: 'getPhoneNumber:fail user deny' },
-    })
-
-    expect(taroMocks.showToast).toHaveBeenCalledWith({
-      title: '未授权手机号，可继续游客体验',
-      icon: 'none',
-    })
-    expect(taroMocks.login).not.toHaveBeenCalled()
-    expect(taroMocks.request).not.toHaveBeenCalled()
-    expect(taroMocks.redirectTo).not.toHaveBeenCalled()
+    expect(phoneButton.props?.openType).toBeUndefined()
+    expect(phoneButton.props?.onGetPhoneNumber).toBeUndefined()
+    expect(phoneButton.props?.onClick).toEqual(expect.any(Function))
   })
 
-  it('exchanges the phone authorization code with a fresh Taro login code', async () => {
+  it('exchanges a fresh Taro login code without phone or openid', async () => {
     const session = {
       access_token: 'access-token',
       refresh_token: 'refresh-token',
@@ -104,16 +93,52 @@ describe('WeChat auth runtime compatibility', () => {
 
     const { default: AuthPage } = await import('./index')
     const phoneButton = findByClass(AuthPage(), 'auth-sheet__phone')
-    await (phoneButton.props?.onGetPhoneNumber as (event: unknown) => Promise<void>)({
-      detail: { code: 'phone-code', errMsg: 'getPhoneNumber:ok' },
-    })
+    await (phoneButton.props?.onClick as () => Promise<void>)()
 
     expect(taroMocks.login).toHaveBeenCalledOnce()
     expect(taroMocks.request).toHaveBeenNthCalledWith(1, expect.objectContaining({
       url: 'https://test-ref.supabase.co/functions/v1/wechat-login',
-      data: { loginCode: 'fresh-login-code', phoneCode: 'phone-code' },
+      data: { loginCode: 'fresh-login-code' },
     }))
     expect(taroMocks.redirectTo).toHaveBeenCalledWith({ url: '/features/home/index' })
+  })
+
+  it('does not call the backend when Taro.login fails', async () => {
+    taroMocks.login.mockRejectedValueOnce(new Error('login:fail'))
+    const { default: AuthPage } = await import('./index')
+    const button = findByClass(AuthPage(), 'auth-sheet__phone')
+    await (button.props?.onClick as () => Promise<void>)()
+    expect(taroMocks.request).not.toHaveBeenCalled()
+    expect(taroMocks.redirectTo).not.toHaveBeenCalled()
+  })
+
+  it('obtains a new code for every separate login attempt', async () => {
+    taroMocks.login
+      .mockResolvedValueOnce({ code: 'fresh-login-code-1' })
+      .mockResolvedValueOnce({ code: 'fresh-login-code-2' })
+    taroMocks.request
+      .mockRejectedValueOnce(new Error('request:fail'))
+      .mockRejectedValueOnce(new Error('request:fail'))
+    const { default: AuthPage } = await import('./index')
+    const button = findByClass(AuthPage(), 'auth-sheet__phone')
+    await (button.props?.onClick as () => Promise<void>)()
+    await (button.props?.onClick as () => Promise<void>)()
+    expect(taroMocks.login).toHaveBeenCalledTimes(2)
+    expect(taroMocks.request.mock.calls[0][0].data).toEqual({ loginCode: 'fresh-login-code-1' })
+    expect(taroMocks.request.mock.calls[1][0].data).toEqual({ loginCode: 'fresh-login-code-2' })
+  })
+
+  it('prevents concurrent login requests', async () => {
+    let finishLogin!: (value: { code: string }) => void
+    taroMocks.login.mockImplementationOnce(() => new Promise(resolve => { finishLogin = resolve }))
+    const { default: AuthPage } = await import('./index')
+    const button = findByClass(AuthPage(), 'auth-sheet__phone')
+    const first = (button.props?.onClick as () => Promise<void>)()
+    const second = (button.props?.onClick as () => Promise<void>)()
+    expect(taroMocks.login).toHaveBeenCalledOnce()
+    finishLogin({ code: 'fresh-login-code' })
+    taroMocks.request.mockRejectedValueOnce(new Error('request:fail'))
+    await Promise.all([first, second])
   })
 
   it('keeps the explicit guest experience available without starting login', async () => {
@@ -144,13 +169,13 @@ describe('WeChat auth runtime compatibility', () => {
       .mockResolvedValueOnce({ statusCode: 200, data: session.user })
 
     const { completeWechatLogin, restoreAuthSession } = await import('@/services/auth-session')
-    await completeWechatLogin('login-code', 'phone-code')
+    await completeWechatLogin('login-code')
     await expect(restoreAuthSession()).resolves.toBe(true)
 
     expect(taroMocks.request).toHaveBeenNthCalledWith(1, expect.objectContaining({
       url: 'https://test-ref.supabase.co/functions/v1/wechat-login',
       method: 'POST',
-      data: { loginCode: 'login-code', phoneCode: 'phone-code' },
+      data: { loginCode: 'login-code' },
       header: expect.objectContaining({
         apikey: 'sb_publishable_test',
         Authorization: 'Bearer sb_publishable_test',
@@ -167,7 +192,7 @@ describe('WeChat auth runtime compatibility', () => {
     const { completeWechatLogin } = await import('@/services/auth-session')
     const { showAuthFailure } = await import('./index')
 
-    const error = await completeWechatLogin('login-code', 'phone-code').catch((cause: unknown) => cause)
+    const error = await completeWechatLogin('login-code').catch((cause: unknown) => cause)
     showAuthFailure(error)
 
     expect(taroMocks.showToast).toHaveBeenCalledWith({
